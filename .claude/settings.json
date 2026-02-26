@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/ogu/Library/Logs/**)",
+      "Read(//Users/ogu/Library/LaunchAgents/**)"
+    ]
+  }
+}
