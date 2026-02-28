@@ -35,6 +35,9 @@ setup_git_auth() {
   git remote set-url origin "https://oguogu-bit:${GITHUB_TOKEN}@github.com/oguogu-bit/finance-study-journal.git"
 }
 
+# Claude呼び出し用システムプロンプト（ツール使用を禁止し、テキスト直接出力させる）
+CLAUDE_SYSTEM="You are a markdown content generator. Output the requested content directly as markdown text. Do NOT use any tools, do NOT write files, do NOT ask for permissions. Just output the markdown text directly to stdout."
+
 # ── 1. 日次コンテンツ生成 ───────────────────────────────
 
 if [ -f "$OUTPUT_FILE" ]; then
@@ -46,6 +49,7 @@ else
   claude -p "$SKILL_PROMPT" \
     --output-format text \
     --no-session-persistence \
+    --system-prompt "$CLAUDE_SYSTEM" \
     > "$OUTPUT_FILE"
 
   echo "[$NOW] 日次コンテンツ生成完了 → $OUTPUT_FILE"
@@ -110,6 +114,7 @@ if [ "$DAY_OF_WEEK" = "0" ]; then
       claude -p "$(cat "$CONTEXT_FILE")" \
         --output-format text \
         --no-session-persistence \
+        --system-prompt "$CLAUDE_SYSTEM" \
         > "$WEEKLY_FILE"
 
       echo "[$NOW] 週次テスト生成完了 → $WEEKLY_FILE（${FOUND_FILES}ファイルを参照）"
