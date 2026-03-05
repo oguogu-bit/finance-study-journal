@@ -8,6 +8,11 @@ set -euo pipefail
 # PATHを明示的に設定（launchd環境用）
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
 
+# launchd環境ではUSER/LOGNAMEが未設定の場合があるので補完
+export USER="${USER:-$(id -un)}"
+export LOGNAME="${LOGNAME:-$USER}"
+export HOME="${HOME:-/Users/$USER}"
+
 TODAY=$(date +%Y-%m-%d)
 YEAR=$(date +%Y)
 MONTH=$(date +%m)
@@ -15,13 +20,19 @@ DAY_OF_WEEK=$(date +%w)  # 0=日曜, 1=月曜 ... 6=土曜
 NOW=$(date '+%Y-%m-%d %H:%M:%S')
 
 # スクリプト配置場所からリポジトリルートを特定する
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 OUTPUT_DIR="$REPO_DIR/$YEAR/$MONTH"
 OUTPUT_FILE="$OUTPUT_DIR/$TODAY.md"
 WEEKLY_FILE="$OUTPUT_DIR/${TODAY}-weekly.md"
+LOG_DIR="$REPO_DIR/logs"
 
-mkdir -p "$OUTPUT_DIR"
+mkdir -p "$OUTPUT_DIR" "$LOG_DIR"
+
+# エラー発生時にログを記録する trap
+trap 'echo "[ERROR $(date +%Y-%m-%d\ %H:%M:%S)] スクリプトがライン $LINENO で失敗 (exit $?)" >> "$LOG_DIR/error.log"' ERR
+
+echo "[$NOW] 起動確認 USER=$USER HOME=$HOME"
 
 if ! command -v claude >/dev/null 2>&1; then
   echo "claude コマンドが見つかりません。PATHを確認してください。"
@@ -31,8 +42,10 @@ fi
 # Git認証設定（共通）
 setup_git_auth() {
   cd "$REPO_DIR"
-  GITHUB_TOKEN=$(gh auth token)
-  git remote set-url origin "https://oguogu-bit:${GITHUB_TOKEN}@github.com/oguogu-bit/finance-study-journal.git"
+  GITHUB_TOKEN=$(gh auth token 2>/dev/null || true)
+  if [ -n "$GITHUB_TOKEN" ]; then
+    git remote set-url origin "https://oguogu-bit:${GITHUB_TOKEN}@github.com/oguogu-bit/finance-study-journal.git"
+  fi
 }
 
 # Claude呼び出し用システムプロンプト（ツール使用を禁止し、テキスト直接出力させる）
@@ -46,11 +59,15 @@ else
   echo "[$NOW] 日次コンテンツ生成を開始..."
 
   SKILL_PROMPT=$(cat "$HOME/.claude/commands/finance-study.md")
-  claude -p "$SKILL_PROMPT" \
+  if ! claude -p "$SKILL_PROMPT" \
     --output-format text \
     --no-session-persistence \
     --system-prompt "$CLAUDE_SYSTEM" \
-    > "$OUTPUT_FILE"
+    > "$OUTPUT_FILE" 2>>"$LOG_DIR/error.log"; then
+    echo "[ERROR $NOW] claude コマンドが失敗しました (exit $?)" >> "$LOG_DIR/error.log"
+    rm -f "$OUTPUT_FILE"
+    exit 1
+  fi
 
   echo "[$NOW] 日次コンテンツ生成完了 → $OUTPUT_FILE"
 
@@ -81,6 +98,7 @@ if [ "$DAY_OF_WEEK" = "0" ]; then
 
     # 一時ファイル（スクリプト終了時に自動削除）
     CONTEXT_FILE=$(mktemp /tmp/finance-weekly-XXXXX.txt)
+    trap 'rm -f "$CONTEXT_FILE"; echo "[ERROR $(date +%Y-%m-%d\ %H:%M:%S)] スクリプトがライン $LINENO で失敗 (exit $?)" >> "$LOG_DIR/error.log"' ERR
     trap 'rm -f "$CONTEXT_FILE"' EXIT INT TERM
 
     # 週次テストスキルの内容 + 今週のファイル内容を結合
@@ -111,11 +129,15 @@ if [ "$DAY_OF_WEEK" = "0" ]; then
     done
 
     if [ "$FOUND_FILES" -gt 0 ]; then
-      claude -p "$(cat "$CONTEXT_FILE")" \
+      if ! claude -p "$(cat "$CONTEXT_FILE")" \
         --output-format text \
         --no-session-persistence \
         --system-prompt "$CLAUDE_SYSTEM" \
-        > "$WEEKLY_FILE"
+        > "$WEEKLY_FILE" 2>>"$LOG_DIR/error.log"; then
+        echo "[ERROR $NOW] 週次テスト生成で claude が失敗しました" >> "$LOG_DIR/error.log"
+        rm -f "$WEEKLY_FILE"
+        exit 1
+      fi
 
       echo "[$NOW] 週次テスト生成完了 → $WEEKLY_FILE（${FOUND_FILES}ファイルを参照）"
 
