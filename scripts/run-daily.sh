@@ -13,11 +13,27 @@ export USER="${USER:-$(id -un)}"
 export LOGNAME="${LOGNAME:-$USER}"
 export HOME="${HOME:-/Users/$USER}"
 
-TODAY=$(date +%Y-%m-%d)
-YEAR=$(date +%Y)
-MONTH=$(date +%m)
-DAY_OF_WEEK=$(date +%w)  # 0=日曜, 1=月曜 ... 6=土曜
+# DATE_OVERRIDE が指定された場合はそちらを使用（バックフィル用）
+if [ -n "${DATE_OVERRIDE:-}" ]; then
+  TODAY="$DATE_OVERRIDE"
+  YEAR="${TODAY:0:4}"
+  MONTH="${TODAY:5:2}"
+  DAY_OF_WEEK=$(date -j -f "%Y-%m-%d" "$TODAY" +%w 2>/dev/null || date +%w)
+else
+  TODAY=$(date +%Y-%m-%d)
+  YEAR=$(date +%Y)
+  MONTH=$(date +%m)
+  DAY_OF_WEEK=$(date +%w)  # 0=日曜, 1=月曜 ... 6=土曜
+fi
 NOW=$(date '+%Y-%m-%d %H:%M:%S')
+
+# テーマ番号をスクリプト側で計算（1〜10のローテーション）
+# macOS: date -j -f で任意の日付の通算日数を取得
+DAY_OF_YEAR=$(date -j -f "%Y-%m-%d" "$TODAY" +%j 2>/dev/null | sed 's/^0*//' || date +%-j)
+THEME_MOD=$((DAY_OF_YEAR % 10))
+THEME_NUM=$((THEME_MOD == 0 ? 10 : THEME_MOD))
+THEME_NAMES=("" "家計管理の基本" "投資の基礎知識" "NISA・iDeCoを活用した節税投資" "日本の税金の仕組み" "保険の選び方" "不動産と住宅ローン" "老後のお金" "リスク管理と分散投資" "経済・マーケットの読み方" "資産形成の戦略")
+THEME_NAME="${THEME_NAMES[$THEME_NUM]}"
 
 # スクリプト配置場所からリポジトリルートを特定する
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
@@ -58,7 +74,13 @@ if [ -f "$OUTPUT_FILE" ]; then
 else
   echo "[$NOW] 日次コンテンツ生成を開始..."
 
-  SKILL_PROMPT=$(cat "$HOME/.claude/commands/finance-study.md")
+  SKILL_CONTENT=$(cat "$HOME/.claude/commands/finance-study.md")
+  SKILL_PROMPT="【本日の指定情報】
+- 今日の日付：$TODAY
+- 使用するテーマ番号：テーマ${THEME_NUM}「${THEME_NAME}」
+- ※ 上記テーマを必ず使用してください。他のテーマは選ばないでください。
+
+$SKILL_CONTENT"
   if ! claude -p "$SKILL_PROMPT" \
     --output-format text \
     --no-session-persistence \

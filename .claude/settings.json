@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "Read(//Users/ogu/Library/Logs/**)",
-      "Read(//Users/ogu/Library/LaunchAgents/**)"
+      "Read(//Users/ogu/Library/LaunchAgents/**)",
+      "Read(//Users/ogu/Desktop/Claude code/finance-study/$HOME/.claude/commands/**)",
+      "Read(//Users/ogu/Desktop/**)",
+      "Read(//Users/ogu/.claude/commands/**)"
     ]
   }
 }
