@@ -104,6 +104,7 @@ $SKILL_CONTENT"
       echo "追加された差分がないため、commit/pushをスキップします。"
     else
       git commit -m "📚 Daily study: $TODAY"
+      git pull --rebase origin main 2>>"$LOG_DIR/error.log" || true
       git push origin main
       echo "[$NOW] 日次コンテンツをGitHubにpushしました"
     fi
@@ -167,6 +168,7 @@ if [ "$DAY_OF_WEEK" = "0" ]; then
       cd "$REPO_DIR"
       git add "$WEEKLY_FILE"
       git commit -m "📝 Weekly test: $TODAY"
+      git pull --rebase origin main 2>>"$LOG_DIR/error.log" || true
       git push origin main
       echo "[$NOW] 週次テストをGitHubにpushしました"
     else
