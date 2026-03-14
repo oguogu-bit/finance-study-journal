@@ -48,7 +48,7 @@ mkdir -p "$OUTPUT_DIR" "$LOG_DIR"
 # エラー発生時にログを記録する trap
 trap 'echo "[ERROR $(date +%Y-%m-%d\ %H:%M:%S)] スクリプトがライン $LINENO で失敗 (exit $?)" >> "$LOG_DIR/error.log"' ERR
 
-echo "[$NOW] 起動確認 USER=$USER HOME=$HOME"
+echo "[$NOW] 起動確認 USER=$USER HOME=$HOME THEME=${THEME_NUM}「${THEME_NAME}」"
 
 if ! command -v claude >/dev/null 2>&1; then
   echo "claude コマンドが見つかりません。PATHを確認してください。"
@@ -67,12 +67,61 @@ setup_git_auth() {
 # Claude呼び出し用システムプロンプト（ツール使用を禁止し、テキスト直接出力させる）
 CLAUDE_SYSTEM="You are a markdown content generator. Output the requested content directly as markdown text. Do NOT use any tools, do NOT write files, do NOT ask for permissions. Just output the markdown text directly to stdout."
 
+# Claude呼び出し（リトライあり）
+# 引数: $1=出力ファイル, $2=プロンプト文字列
+run_claude_with_retry() {
+  local out_file="$1"
+  local prompt="$2"
+  local max_attempts=3
+  local attempt=1
+
+  while [ $attempt -le $max_attempts ]; do
+    echo "[$NOW] Claude呼び出し (試行 ${attempt}/${max_attempts})..." >> "$LOG_DIR/daily.log" 2>&1 || true
+    local tmp_out="${out_file}.tmp"
+    local tmp_err=$(mktemp /tmp/claude-err-XXXXX.txt)
+
+    if claude -p "$prompt" \
+        --output-format text \
+        --no-session-persistence \
+        --system-prompt "$CLAUDE_SYSTEM" \
+        > "$tmp_out" 2>"$tmp_err"; then
+
+      # 出力が空でないか確認
+      if [ -s "$tmp_out" ]; then
+        mv "$tmp_out" "$out_file"
+        rm -f "$tmp_err"
+        return 0
+      else
+        echo "[ERROR $(date +%Y-%m-%d\ %H:%M:%S)] 試行${attempt}: claudeの出力が空でした" >> "$LOG_DIR/error.log"
+      fi
+    else
+      local exit_code=$?
+      echo "[ERROR $(date +%Y-%m-%d\ %H:%M:%S)] 試行${attempt}: claude失敗 (exit ${exit_code})" >> "$LOG_DIR/error.log"
+      if [ -s "$tmp_err" ]; then
+        echo "--- claude stderr ---" >> "$LOG_DIR/error.log"
+        cat "$tmp_err" >> "$LOG_DIR/error.log"
+        echo "--- end stderr ---" >> "$LOG_DIR/error.log"
+      fi
+    fi
+
+    rm -f "$tmp_out" "$tmp_err"
+    attempt=$((attempt + 1))
+
+    if [ $attempt -le $max_attempts ]; then
+      echo "[RETRY $(date +%Y-%m-%d\ %H:%M:%S)] ${attempt-1}回目失敗、30秒後にリトライします..." >> "$LOG_DIR/error.log"
+      sleep 30
+    fi
+  done
+
+  return 1
+}
+
 # ── 1. 日次コンテンツ生成 ───────────────────────────────
 
 if [ -f "$OUTPUT_FILE" ]; then
   echo "[$TODAY] 日次コンテンツは既に存在します: $OUTPUT_FILE"
 else
-  echo "[$NOW] 日次コンテンツ生成を開始..."
+  echo "[$NOW] 日次コンテンツ生成を開始... (テーマ${THEME_NUM}「${THEME_NAME}」)"
 
   SKILL_CONTENT=$(cat "$HOME/.claude/commands/finance-study.md")
   SKILL_PROMPT="【本日の指定情報】
@@ -81,12 +130,9 @@ else
 - ※ 上記テーマを必ず使用してください。他のテーマは選ばないでください。
 
 $SKILL_CONTENT"
-  if ! claude -p "$SKILL_PROMPT" \
-    --output-format text \
-    --no-session-persistence \
-    --system-prompt "$CLAUDE_SYSTEM" \
-    > "$OUTPUT_FILE" 2>>"$LOG_DIR/error.log"; then
-    echo "[ERROR $NOW] claude コマンドが失敗しました (exit $?)" >> "$LOG_DIR/error.log"
+
+  if ! run_claude_with_retry "$OUTPUT_FILE" "$SKILL_PROMPT"; then
+    echo "[ERROR $NOW] $TODAY の生成が${max_attempts}回全て失敗しました。明日再試行されます。" >> "$LOG_DIR/error.log"
     rm -f "$OUTPUT_FILE"
     exit 1
   fi
@@ -152,12 +198,8 @@ if [ "$DAY_OF_WEEK" = "0" ]; then
     done
 
     if [ "$FOUND_FILES" -gt 0 ]; then
-      if ! claude -p "$(cat "$CONTEXT_FILE")" \
-        --output-format text \
-        --no-session-persistence \
-        --system-prompt "$CLAUDE_SYSTEM" \
-        > "$WEEKLY_FILE" 2>>"$LOG_DIR/error.log"; then
-        echo "[ERROR $NOW] 週次テスト生成で claude が失敗しました" >> "$LOG_DIR/error.log"
+      if ! run_claude_with_retry "$WEEKLY_FILE" "$(cat "$CONTEXT_FILE")"; then
+        echo "[ERROR $NOW] 週次テスト生成が全て失敗しました" >> "$LOG_DIR/error.log"
         rm -f "$WEEKLY_FILE"
         exit 1
       fi
