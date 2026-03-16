@@ -108,7 +108,7 @@ run_claude_with_retry() {
     attempt=$((attempt + 1))
 
     if [ $attempt -le $max_attempts ]; then
-      echo "[RETRY $(date +%Y-%m-%d\ %H:%M:%S)] ${attempt-1}回目失敗、30秒後にリトライします..." >> "$LOG_DIR/error.log"
+      echo "[RETRY $(date +%Y-%m-%d\ %H:%M:%S)] $((attempt-1))回目失敗、30秒後にリトライします..." >> "$LOG_DIR/error.log"
       sleep 30
     fi
   done
@@ -132,7 +132,7 @@ else
 $SKILL_CONTENT"
 
   if ! run_claude_with_retry "$OUTPUT_FILE" "$SKILL_PROMPT"; then
-    echo "[ERROR $NOW] $TODAY の生成が${max_attempts}回全て失敗しました。明日再試行されます。" >> "$LOG_DIR/error.log"
+    echo "[ERROR $NOW] $TODAY の生成が3回全て失敗しました。明日再試行されます。" >> "$LOG_DIR/error.log"
     rm -f "$OUTPUT_FILE"
     exit 1
   fi
