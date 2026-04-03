@@ -159,7 +159,8 @@ $SKILL_CONTENT"
     if git diff --cached --quiet; then
       echo "追加された差分がないため、commit/pushをスキップします。"
     else
-      git commit -m "📚 Daily study: $TODAY"
+      COMMIT_MSG="📚 ${TITLE:-Daily study: $TODAY}"
+      git commit -m "$COMMIT_MSG"
       git pull --rebase origin main 2>>"$LOG_DIR/error.log" || true
       git push origin main
       echo "[$NOW] 日次コンテンツをGitHubにpushしました"
