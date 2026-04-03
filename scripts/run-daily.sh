@@ -139,13 +139,23 @@ $SKILL_CONTENT"
 
   echo "[$NOW] 日次コンテンツ生成完了 → $OUTPUT_FILE"
 
+  # README.md の学習ログに新しい行を追加
+  TITLE=$(grep -m1 "今日の学習テーマ：" "$OUTPUT_FILE" | sed 's/.*今日の学習テーマ：//' | sed 's/^[[:space:]]*//')
+  if [ -z "$TITLE" ]; then
+    TITLE=$(grep -m1 "^#" "$OUTPUT_FILE" | sed 's/^#* *//')
+  fi
+  if [ -n "$TITLE" ]; then
+    echo "| [${TODAY}](${YEAR}/${MONTH}/${TODAY}.md) | ${TITLE} |" >> "$REPO_DIR/README.md"
+    echo "[$NOW] README.md に学習ログを追記しました: $TITLE"
+  fi
+
   setup_git_auth
   cd "$REPO_DIR"
 
   if ! git remote get-url origin >/dev/null 2>&1; then
     echo "origin リモートが未設定のため、pushをスキップします。"
   else
-    git add "$OUTPUT_FILE"
+    git add "$OUTPUT_FILE" "$REPO_DIR/README.md"
     if git diff --cached --quiet; then
       echo "追加された差分がないため、commit/pushをスキップします。"
     else
@@ -206,9 +216,16 @@ if [ "$DAY_OF_WEEK" = "0" ]; then
 
       echo "[$NOW] 週次テスト生成完了 → $WEEKLY_FILE（${FOUND_FILES}ファイルを参照）"
 
+      # README.md の学習ログに週次テスト行を追加
+      WEEKLY_PERIOD=$(grep -m1 "週次まとめテスト：" "$WEEKLY_FILE" | sed 's/.*週次まとめテスト：//' | sed 's/^[[:space:]]*//')
+      if [ -n "$WEEKLY_PERIOD" ]; then
+        echo "| [${TODAY} 週次テスト](${YEAR}/${MONTH}/${TODAY}-weekly.md) | 📋 週次まとめテスト：${WEEKLY_PERIOD} |" >> "$REPO_DIR/README.md"
+        echo "[$NOW] README.md に週次テストログを追記しました"
+      fi
+
       setup_git_auth
       cd "$REPO_DIR"
-      git add "$WEEKLY_FILE"
+      git add "$WEEKLY_FILE" "$REPO_DIR/README.md"
       git commit -m "📝 Weekly test: $TODAY"
       git pull --rebase origin main 2>>"$LOG_DIR/error.log" || true
       git push origin main
