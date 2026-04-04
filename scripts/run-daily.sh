@@ -78,7 +78,7 @@ run_claude_with_retry() {
   while [ $attempt -le $max_attempts ]; do
     echo "[$NOW] Claude呼び出し (試行 ${attempt}/${max_attempts})..." >> "$LOG_DIR/daily.log" 2>&1 || true
     local tmp_out="${out_file}.tmp"
-    local tmp_err=$(mktemp /tmp/claude-err-XXXXX.txt)
+    local tmp_err=$(mktemp /tmp/claude-err-XXXXXX)
 
     if claude -p "$prompt" \
         --output-format text \
@@ -177,7 +177,7 @@ if [ "$DAY_OF_WEEK" = "0" ]; then
     echo "[$NOW] 週次まとめテスト生成を開始..."
 
     # 一時ファイル（スクリプト終了時に自動削除）
-    CONTEXT_FILE=$(mktemp /tmp/finance-weekly-XXXXX.txt)
+    CONTEXT_FILE=$(mktemp /tmp/finance-weekly-XXXXXX)
     trap 'rm -f "$CONTEXT_FILE"; echo "[ERROR $(date +%Y-%m-%d\ %H:%M:%S)] スクリプトがライン $LINENO で失敗 (exit $?)" >> "$LOG_DIR/error.log"' ERR
     trap 'rm -f "$CONTEXT_FILE"' EXIT INT TERM
 
