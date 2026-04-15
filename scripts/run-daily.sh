@@ -67,8 +67,10 @@ setup_git_auth() {
 # Claude呼び出し用システムプロンプト（ツール使用を禁止し、テキスト直接出力させる）
 CLAUDE_SYSTEM="You are a markdown content generator. Output the requested content directly as markdown text. Do NOT use any tools, do NOT write files, do NOT ask for permissions. Just output the markdown text directly to stdout."
 
-# Claude呼び出し（リトライあり）
+# Claude呼び出し（リトライあり・タイムアウト付き）
 # 引数: $1=出力ファイル, $2=プロンプト文字列
+CLAUDE_TIMEOUT_SEC=300  # 5分でタイムアウト
+
 run_claude_with_retry() {
   local out_file="$1"
   local prompt="$2"
@@ -79,13 +81,37 @@ run_claude_with_retry() {
     echo "[$NOW] Claude呼び出し (試行 ${attempt}/${max_attempts})..." >> "$LOG_DIR/daily.log" 2>&1 || true
     local tmp_out="${out_file}.tmp"
     local tmp_err=$(mktemp /tmp/claude-err-XXXXXX)
+    local tmp_timeout_flag=$(mktemp /tmp/claude-timeout-XXXXXX)
+    rm -f "$tmp_timeout_flag"
 
-    if claude -p "$prompt" \
+    # バックグラウンドでclaudeを起動し、タイムアウト監視を並行実行
+    claude -p "$prompt" \
         --output-format text \
         --no-session-persistence \
         --system-prompt "$CLAUDE_SYSTEM" \
-        > "$tmp_out" 2>"$tmp_err"; then
+        > "$tmp_out" 2>"$tmp_err" &
+    local claude_pid=$!
 
+    # タイムアウト監視（バックグラウンド）
+    (
+      sleep "$CLAUDE_TIMEOUT_SEC"
+      if kill -0 "$claude_pid" 2>/dev/null; then
+        kill "$claude_pid" 2>/dev/null
+        touch "$tmp_timeout_flag"
+      fi
+    ) &
+    local timer_pid=$!
+
+    wait "$claude_pid"
+    local exit_code=$?
+    kill "$timer_pid" 2>/dev/null
+    wait "$timer_pid" 2>/dev/null
+
+    if [ -f "$tmp_timeout_flag" ]; then
+      echo "[ERROR $(date +%Y-%m-%d\ %H:%M:%S)] 試行${attempt}: claude タイムアウト (${CLAUDE_TIMEOUT_SEC}秒超過)" >> "$LOG_DIR/error.log"
+      rm -f "$tmp_out" "$tmp_err" "$tmp_timeout_flag"
+    elif [ "$exit_code" -eq 0 ]; then
+      rm -f "$tmp_timeout_flag"
       # 出力が空でないか確認
       if [ -s "$tmp_out" ]; then
         mv "$tmp_out" "$out_file"
@@ -93,23 +119,25 @@ run_claude_with_retry() {
         return 0
       else
         echo "[ERROR $(date +%Y-%m-%d\ %H:%M:%S)] 試行${attempt}: claudeの出力が空でした" >> "$LOG_DIR/error.log"
+        rm -f "$tmp_out" "$tmp_err"
       fi
     else
-      local exit_code=$?
       echo "[ERROR $(date +%Y-%m-%d\ %H:%M:%S)] 試行${attempt}: claude失敗 (exit ${exit_code})" >> "$LOG_DIR/error.log"
       if [ -s "$tmp_err" ]; then
         echo "--- claude stderr ---" >> "$LOG_DIR/error.log"
         cat "$tmp_err" >> "$LOG_DIR/error.log"
         echo "--- end stderr ---" >> "$LOG_DIR/error.log"
+      else
+        echo "[DEBUG] stderr空 (exit ${exit_code})" >> "$LOG_DIR/error.log"
       fi
+      rm -f "$tmp_out" "$tmp_err" "$tmp_timeout_flag"
     fi
 
-    rm -f "$tmp_out" "$tmp_err"
     attempt=$((attempt + 1))
 
     if [ $attempt -le $max_attempts ]; then
-      echo "[RETRY $(date +%Y-%m-%d\ %H:%M:%S)] $((attempt-1))回目失敗、30秒後にリトライします..." >> "$LOG_DIR/error.log"
-      sleep 30
+      echo "[RETRY $(date +%Y-%m-%d\ %H:%M:%S)] $((attempt-1))回目失敗、60秒後にリトライします..." >> "$LOG_DIR/error.log"
+      sleep 60
     fi
   done
 
@@ -215,7 +243,7 @@ if [ "$DAY_OF_WEEK" = "0" ]; then
         exit 1
       fi
 
-      echo "[$NOW] 週次テスト生成完了 → $WEEKLY_FILE（${FOUND_FILES}ファイルを参照）"
+      echo "[$NOW] 週次テスト生成完了 → ${WEEKLY_FILE}（${FOUND_FILES}ファイルを参照）"
 
       # README.md の学習ログに週次テスト行を追加
       WEEKLY_PERIOD=$(grep -m1 "週次まとめテスト：" "$WEEKLY_FILE" | sed 's/.*週次まとめテスト：//' | sed 's/^[[:space:]]*//')
