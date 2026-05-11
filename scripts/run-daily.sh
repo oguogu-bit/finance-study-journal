@@ -69,7 +69,7 @@ CLAUDE_SYSTEM="You are a markdown content generator. Output the requested conten
 
 # Claude呼び出し（リトライあり・タイムアウト付き）
 # 引数: $1=出力ファイル, $2=プロンプト文字列
-CLAUDE_TIMEOUT_SEC=300  # 5分でタイムアウト
+CLAUDE_TIMEOUT_SEC=600  # 10分でタイムアウト
 
 run_claude_with_retry() {
   local out_file="$1"
@@ -88,6 +88,7 @@ run_claude_with_retry() {
     claude -p "$prompt" \
         --output-format text \
         --no-session-persistence \
+        --dangerously-skip-permissions \
         --system-prompt "$CLAUDE_SYSTEM" \
         --tools "" \
         > "$tmp_out" 2>"$tmp_err" &
@@ -131,6 +132,11 @@ run_claude_with_retry() {
       else
         echo "[DEBUG] stderr空 (exit ${exit_code})" >> "$LOG_DIR/error.log"
       fi
+      if [ -s "$tmp_out" ]; then
+        echo "--- claude stdout (失敗時) ---" >> "$LOG_DIR/error.log"
+        head -20 "$tmp_out" >> "$LOG_DIR/error.log"
+        echo "--- end stdout ---" >> "$LOG_DIR/error.log"
+      fi
       rm -f "$tmp_out" "$tmp_err" "$tmp_timeout_flag"
     fi
 
@@ -145,16 +151,16 @@ run_claude_with_retry() {
   return 1
 }
 
-# ── バックフィル: 過去7日の欠損ファイルを自動補完 ──────────
+# ── バックフィル: 過去14日の欠損ファイルを自動補完 ──────────
 # DATE_OVERRIDEなしの通常実行時のみ実行（再帰呼び出し防止）
 if [ -z "${DATE_OVERRIDE:-}" ]; then
-  for i in 7 6 5 4 3 2 1; do
+  for i in 14 13 12 11 10 9 8 7 6 5 4 3 2 1; do
     past_date=$(date -v-${i}d +%Y-%m-%d)
     past_year="${past_date:0:4}"
     past_month="${past_date:5:2}"
     past_file="$REPO_DIR/$past_year/$past_month/$past_date.md"
     if [ ! -f "$past_file" ]; then
-      echo "[$(date '+%Y-%m-%d %H:%M:%S')] [BACKFILL] $past_date の欠損を検出 — 自動生成開始" | tee -a "$LOG_DIR/daily.log"
+      echo "[$(date '+%Y-%m-%d %H:%M:%S')] [BACKFILL] $past_date の欠損を検出 — 自動生成開始" >> "$LOG_DIR/daily.log"
       DATE_OVERRIDE="$past_date" bash "$SCRIPT_DIR/run-daily.sh" >> "$LOG_DIR/daily.log" 2>> "$LOG_DIR/error.log" \
         || echo "[$(date '+%Y-%m-%d %H:%M:%S')] [BACKFILL ERROR] $past_date の自動バックフィル失敗" >> "$LOG_DIR/error.log"
     fi
