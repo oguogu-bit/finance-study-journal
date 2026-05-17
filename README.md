@@ -32,6 +32,18 @@ finance-study-journal/
 - **生成**: Claude Code CLI (`claude -p "/finance-study"`)
 - **保存**: GitHub に自動コミット・プッシュ
 
+### GitHub Actions での自動生成
+
+PCを開いていなくても、GitHub Actions が毎日 6:00（日本時間）に学習ノートを生成し、リポジトリへ自動でコミット・プッシュします。
+
+必要なGitHub設定:
+
+1. GitHub リポジトリの `Settings` → `Secrets and variables` → `Actions` を開く
+2. `Repository secrets` に `OPENAI_API_KEY` を追加する
+3. 必要に応じて `Repository variables` に `OPENAI_MODEL` を追加する（未設定時は `gpt-5-mini`）
+
+手動実行する場合は、GitHub の `Actions` → `Daily finance study` → `Run workflow` から任意の日付を指定できます。
+
 > ⚠️ 本ノートは学習目的であり、投資アドバイスではありません。
 > 実際の投資判断は自己責任で行ってください。
 
